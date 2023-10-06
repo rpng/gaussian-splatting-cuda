@@ -1,5 +1,5 @@
 {
-  "iterations": 30000,
+  "iterations": 7000,
   "position_lr_init": 0.00016,
   "position_lr_final": 0.0000016,
   "position_lr_delay_mult": 0.01,

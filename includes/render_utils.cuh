@@ -15,6 +15,7 @@ inline std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> re
                                                                                      torch::Tensor& bg_color,
                                                                                      float scaling_modifier = 1.0,
                                                                                      torch::Tensor override_color = torch::empty({})) {
+    std::cout<< "Render_utils.h -> render" <<std::endl;
     // Ensure background tensor (bg_color) is on GPU!
     bg_color = bg_color.to(torch::kCUDA);
 
@@ -35,8 +36,8 @@ inline std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor> re
     GaussianRasterizer rasterizer = GaussianRasterizer(raster_settings);
 
     auto means3D = gaussianModel.Get_xyz();
-    auto means2D = torch::zeros_like(gaussianModel.Get_xyz()).requires_grad_(true);
-    means2D.retain_grad();
+    auto means2D = torch::zeros_like(gaussianModel.Get_xyz()).requires_grad_(true); //means2D gradients are computed during backpropagation
+    means2D.retain_grad(); // gradients are retained 
     auto opacity = gaussianModel.Get_opacity();
 
     auto scales = torch::Tensor();

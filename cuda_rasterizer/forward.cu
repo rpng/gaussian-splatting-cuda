@@ -102,7 +102,7 @@ __device__ float3 computeCov2D(const float3& mean, float focal_x, float focal_y,
 
     // Apply low-pass filter: every Gaussian should be at least
     // one pixel wide/high. Discard 3rd row and column.
-    cov[0][0] += 0.3f;
+    cov[0][0] += 0.3f; // add a small value to the diagonal to prevent numerical unstability
     cov[1][1] += 0.3f;
     return {float(cov[0][0]), float(cov[0][1]), float(cov[1][1])};
 }
@@ -217,7 +217,7 @@ __global__ void preprocessCUDA(int P, int D, int M,
     // rectangle covers 0 tiles.
     float mid = 0.5f * (cov.x + cov.z);
     float lambda1 = mid + sqrt(max(0.1f, mid * mid - det));
-    float lambda2 = mid - sqrt(max(0.1f, mid * mid - det));
+    float lambda2 = mid - sqrt(max(0.1f, mid * mid - det)); // calculate the eigen values of the 2d matrix
     float my_radius = ceil(3.f * sqrt(max(lambda1, lambda2)));
     float2 point_image = {ndc2Pix(p_proj.x, W), ndc2Pix(p_proj.y, H)};
     uint2 rect_min, rect_max;
@@ -315,12 +315,15 @@ __global__ void __launch_bounds__(BLOCK_X* BLOCK_Y)
 
             // Resample using conic matrix (cf. "Surface
             // Splatting" by Zwicker et al., 2001)
-            float2 xy = collected_xy[j];
+            float2 xy = collected_xy[j]; // position on an image
             float2 d = {__fmaf_rn(1.f, xy.x, -pixf.x),
-                        __fmaf_rn(1.f, xy.y, -pixf.y)};
+                        __fmaf_rn(1.f, xy.y, -pixf.y)}; // d is the distance vector between the pixel being resampled and the center of the splat
             float4 con_o = collected_conic_opacity[j];
 
+            // second order approximation of the surface around the splat
             float power = __fmaf_rn(-con_o.y * d.x, d.y, __fmaf_rn(-0.5f * con_o.x, d.x * d.x, __fmaf_rn(-0.5f * con_o.z, d.y * d.y, 0.f)));
+            
+            // If power is negative, the splat is behind the surface discarded
             if (power > 0.0f)
                 continue;
 
@@ -328,7 +331,7 @@ __global__ void __launch_bounds__(BLOCK_X* BLOCK_Y)
             // Obtain alpha by multiplying with Gaussian opacity
             // and its exponential falloff from mean.
             // Avoid numerical instabilities (see paper appendix).
-            float alpha = fminf(0.99f, __fmaf_rn(con_o.w, expf(power), 0.f));
+            float alpha = fminf(0.99f, __fmaf_rn(con_o.w, expf(power), 0.f)); // con_o.w * expf(power);
             if (alpha < ALPHA_THRESHOLD_FWD)
                 continue;
             float test_T = __fmaf_rn(T, -alpha, T);
@@ -355,7 +358,7 @@ __global__ void __launch_bounds__(BLOCK_X* BLOCK_Y)
         final_T[pix_id] = T;
         n_contrib[pix_id] = last_contributor;
         for (int ch = 0; ch < CHANNELS; ch++)
-            out_color[ch * H * W + pix_id] = __fmaf_rn(T, bg_color[ch], C[ch]);
+            out_color[ch * H * W + pix_id] = __fmaf_rn(T, bg_color[ch], C[ch]); //(T * bg_color) + C
     }
 }
 

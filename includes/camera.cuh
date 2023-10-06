@@ -50,8 +50,8 @@ private:
     float _znear;
     torch::Tensor _trans;
     float _scale;
-    torch::Tensor _world_view_transform;
-    torch::Tensor _projection_matrix;
+    torch::Tensor _world_view_transform; // [R|T]
+    torch::Tensor _projection_matrix; // to prject 3d points onto 2D plane (NDC)
     torch::Tensor _full_proj_transform;
     torch::Tensor _camera_center;
 };

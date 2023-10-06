@@ -33,7 +33,7 @@ torch::autograd::tensor_list rasterize_gaussians(torch::Tensor means3D,
                                                  torch::Tensor cov3Ds_precomp,
                                                  GaussianRasterizationSettings raster_settings);
 
-class _RasterizeGaussians : public torch::autograd::Function<_RasterizeGaussians> {
+class _RasterizeGaussians : public torch::autograd::Function<_RasterizeGaussians> { // custom autograd function
 public:
     static torch::autograd::tensor_list forward(torch::autograd::AutogradContext* ctx,
                                                 torch::Tensor means3D,
@@ -54,8 +54,9 @@ public:
                                                 torch::Tensor projmatrix,
                                                 torch::Tensor sh_degree,
                                                 torch::Tensor camera_center,
-                                                torch::Tensor prefiltered) {
-
+                                                torch::Tensor prefiltered) 
+    {
+        std::cout<< "rasterizer.cu -> autograd_forward" << std::endl;
         int image_height_val = image_height.item<int>();
         int image_width_val = image_width.item<int>();
         float tanfovx_val = tanfovx.item<float>();
@@ -67,7 +68,7 @@ public:
         // TODO: should it be this way? Bug?
         camera_center = camera_center.contiguous();
 
-        auto [num_rendered, color, radii, geomBuffer, binningBuffer, imgBuffer] = RasterizeGaussiansCUDA(
+        auto [num_rendered, color, radii, geomBuffer, binningBuffer, imgBuffer] = RasterizeGaussiansCUDA( // this calls rasterize_points.cu which calls custom cuda implementation
             bg,
             means3D,
             colors_precomp,
@@ -106,6 +107,7 @@ public:
     }
 
     static torch::autograd::tensor_list backward(torch::autograd::AutogradContext* ctx, torch::autograd::tensor_list grad_outputs) {
+        std::cout<< "rasterizer.cu -> autograd_backward" << std::endl;
         auto grad_out_color = grad_outputs[0];
         auto grad_out_radii = grad_outputs[1];
 
@@ -245,6 +247,7 @@ public:
                                                      torch::Tensor scales = torch::Tensor(),
                                                      torch::Tensor rotations = torch::Tensor(),
                                                      torch::Tensor cov3D_precomp = torch::Tensor()) {
+        std::cout<< "rasterizer.cu -> forward" << std::endl;
 
         if ((shs.defined() && colors_precomp.defined()) || (!shs.defined() && !colors_precomp.defined())) {
             throw std::invalid_argument("Please provide exactly one of either SHs or precomputed colors!");

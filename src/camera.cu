@@ -21,17 +21,18 @@ Camera::Camera(int imported_colmap_id,
                               _uid(uid),
                               _scale(scale) {
 
-    this->_original_image = torch::clamp(image, 0.f, 1.f);
-    this->_image_width = this->_original_image.size(2);
-    this->_image_height = this->_original_image.size(1);
+    _original_image = torch::clamp(image, 0.f, 1.f);
+    _image_width = _original_image.size(2);
+    _image_height = _original_image.size(1);
 
-    this->_zfar = 100.f;
-    this->_znear = 0.01f;
+    _zfar = 100.f;
+    _znear = 0.01f;
 
-    this->_world_view_transform = getWorld2View2(R, T, Eigen::Vector3f::Zero(), _scale).to(torch::kCUDA, true);
-    this->_projection_matrix = getProjectionMatrix(this->_znear, this->_zfar, this->_FoVx, this->_FoVy).to(torch::kCUDA, true);
-    this->_full_proj_transform = this->_world_view_transform.unsqueeze(0).bmm(this->_projection_matrix.unsqueeze(0)).squeeze(0);
-    this->_camera_center = this->_world_view_transform.inverse()[3].slice(0, 0, 3);
+    _world_view_transform = getWorld2View2(R, T, Eigen::Vector3f::Zero(), _scale).to(torch::kCUDA, true);
+    //std::cout<< "world_view_transform: " << _world_view_transform <<std::endl;
+    _projection_matrix = getProjectionMatrix(_znear, _zfar, _FoVx, _FoVy).to(torch::kCUDA, true);
+    _full_proj_transform = _world_view_transform.unsqueeze(0).bmm(_projection_matrix.unsqueeze(0)).squeeze(0);
+    _camera_center = _world_view_transform.inverse()[3].slice(0, 0, 3);
 }
 
 // TODO: I have skipped the resolution for now.

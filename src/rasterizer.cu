@@ -11,7 +11,8 @@ torch::autograd::tensor_list rasterize_gaussians(torch::Tensor means3D,
                                                  torch::Tensor rotations,
                                                  torch::Tensor cov3Ds_precomp,
                                                  GaussianRasterizationSettings raster_settings) {
-
+                                                
+    std::cout<< "rasterize.cu -> rasterize_gaussians" << std::endl;
     torch::Device device = torch::kCUDA;
     auto image_height = torch::tensor(raster_settings.image_height, device);
     auto image_width = torch::tensor(raster_settings.image_width, device);
@@ -45,7 +46,7 @@ torch::autograd::tensor_list rasterize_gaussians(torch::Tensor means3D,
     rotations = rotations.to(device);
     cov3Ds_precomp = cov3Ds_precomp.to(device);
 
-    return _RasterizeGaussians::apply(
+    return _RasterizeGaussians::apply( // this is call autograd forward function
         means3D,
         means2D,
         sh,

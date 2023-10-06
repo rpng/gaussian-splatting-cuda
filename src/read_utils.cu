@@ -349,7 +349,7 @@ std::vector<CameraInfo> read_colmap_cameras(const std::filesystem::path file_pat
                 camera_info->_channels = channels;
                 camera_info->_img_data = img_data;
 
-                camera_info->_R = qvec2rotmat(image->_qvec).transpose();
+                camera_info->_R = qvec2rotmat(image->_qvec).transpose(); // colmap stores W2C we need C2W
                 camera_info->_T = image->_tvec;
 
                 camera_info->_image_name = image->_name;
@@ -410,7 +410,7 @@ std::pair<Eigen::Vector3f, float> get_center_and_diag(std::vector<Eigen::Vector3
 
     float max_dist = 0;
     for (const auto& center : cam_centers) {
-        max_dist = std::max(max_dist, (center - avg_cam_center).norm());
+        max_dist = std::max(max_dist, (center - avg_cam_center).norm()); // maximum distance from the average center to any camera center
     }
 
     return {avg_cam_center, max_dist};
@@ -426,7 +426,7 @@ std::pair<Eigen::Vector3f, float> getNerfppNorm(std::vector<CameraInfo>& cam_inf
 
     auto [center, diagonal] = get_center_and_diag(cam_centers);
 
-    float radius = diagonal * 1.1f;
+    float radius = diagonal * 1.1f; // set the radius 10% larger than the max distance
     Eigen::Vector3f translate = -center;
 
     return {translate, radius};

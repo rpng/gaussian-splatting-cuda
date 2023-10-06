@@ -12,6 +12,7 @@
 #include <iostream>
 #include <random>
 #include <torch/torch.h>
+#include <iomanip>
 
 void Write_model_parameters_to_file(const gs::param::ModelParameters& params) {
     std::filesystem::path outputPath = params.output_path;
@@ -171,22 +172,29 @@ int main(int argc, char* argv[]) {
     auto start_time = std::chrono::steady_clock::now();
     float loss_add = 0.f;
 
-    LossMonitor loss_monitor(200);
+    LossMonitor loss_monitor(200); // Initialize a loss monitor with a buffer size of 200.
     float avg_converging_rate = 0.f;
 
     float psnr_value = 0.f;
-    for (int iter = 1; iter < optimParams.iterations + 1; ++iter) {
+    for (int iter = 1; iter < optimParams.iterations + 1; ++iter) 
+    {
         if (indices.empty()) {
-            indices = get_random_indices(camera_count);
+            indices = get_random_indices(camera_count); // Get random camera indices if the indices vector is empty.
         }
-        const int camera_index = indices.back();
+        const int camera_index = indices.back(); // Get the last camera index from the vector.
         auto& cam = scene.Get_training_camera(camera_index);
-        auto gt_image = cam.Get_original_image().to(torch::kCUDA, true);
+        std::cout << "Rendering camera position: " << std::fixed << std::setprecision(6) << cam.Get_T() << std::endl;
+        std::cout<< "Rendering camera rotation: "<< std::fixed << std::setprecision(6) << cam.Get_R() << std::endl;
+        std::cout<< "image name: "<< cam.Get_image_name() << std::endl;
+        std::cout<< "Get_world_view_transform: "<< cam.Get_world_view_transform() << std::endl;
+        std::cout<< "Get_projection_matrix: "<< cam.Get_projection_matrix() << std::endl;
+        std::cout<< "Get_full_proj_transform: "<< cam.Get_full_proj_transform() <<std::endl;
+        auto gt_image = cam.Get_original_image().to(torch::kCUDA, true); // Get the ground truth image
         indices.pop_back(); // remove last element to iterate over all cameras randomly
         if (iter % 1000 == 0) {
-            gaussians.One_up_sh_degree();
+            gaussians.One_up_sh_degree(); // Increase SH degree every 1000 iterations
         }
-        // Render
+        // Render the scene using the current camera and model configuration.
         auto [image, viewspace_point_tensor, visibility_filter, radii] = render(cam, gaussians, background);
 
         // Loss Computations
@@ -195,7 +203,7 @@ int main(int argc, char* argv[]) {
         auto loss = (1.f - optimParams.lambda_dssim) * l1l + optimParams.lambda_dssim * (1.f - ssim_loss);
 
         // Update status line
-        if (iter % 100 == 0) {
+        if (iter % 100 == 0) { // Update status line every 100 iterations
             auto cur_time = std::chrono::steady_clock::now();
             std::chrono::duration<double> time_elapsed = cur_time - start_time;
             // XXX shouldn't have to create a new stringstream, but resetting takes multiple calls
@@ -226,11 +234,11 @@ int main(int argc, char* argv[]) {
         if (optimParams.early_stopping) {
             avg_converging_rate = loss_monitor.Update(loss.item<float>());
         }
-        loss_add += loss.item<float>();
-        loss.backward();
+        loss_add += loss.item<float>(); // Accumulate the loss
+        loss.backward(); // Backpropagate the loss gradients rasterize_backward is called
 
         {
-            torch::NoGradGuard no_grad;
+            torch::NoGradGuard no_grad; //Disable gradient tracking within this block
             auto visible_max_radii = gaussians._max_radii2D.masked_select(visibility_filter);
             auto visible_radii = radii.masked_select(visibility_filter);
             auto max_radii = torch::max(visible_max_radii, visible_radii);
@@ -247,9 +255,9 @@ int main(int argc, char* argv[]) {
                 gaussians.Save_ply(modelParams.output_path, iter, false);
             }
 
-            // Densification
+            // Densification based on the gradient threshold and prune based on the opacity threshold
             if (iter < optimParams.densify_until_iter) {
-                gaussians.Add_densification_stats(viewspace_point_tensor, visibility_filter);
+                gaussians.Add_densification_stats(viewspace_point_tensor, visibility_filter); // Add densification statistics
                 if (iter > optimParams.densify_from_iter && iter % optimParams.densification_interval == 0) {
                     // @TODO: Not sure about type
                     float size_threshold = iter > optimParams.opacity_reset_interval ? 20.f : -1.f;

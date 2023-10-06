@@ -90,11 +90,11 @@ void GaussianModel::Training_setup(const gs::param::OptimizationParameters& para
 
     std::vector<torch::optim::OptimizerParamGroup> optimizer_params_groups;
     optimizer_params_groups.reserve(6);
-    optimizer_params_groups.push_back(torch::optim::OptimizerParamGroup({_xyz}, std::make_unique<torch::optim::AdamOptions>(params.position_lr_init * this->_spatial_lr_scale)));
+    optimizer_params_groups.push_back(torch::optim::OptimizerParamGroup({_xyz}, std::make_unique<torch::optim::AdamOptions>(params.position_lr_init * this->_spatial_lr_scale))); // position of SfM points
     optimizer_params_groups.push_back(torch::optim::OptimizerParamGroup({_features_dc}, std::make_unique<torch::optim::AdamOptions>(params.feature_lr)));
     optimizer_params_groups.push_back(torch::optim::OptimizerParamGroup({_features_rest}, std::make_unique<torch::optim::AdamOptions>(params.feature_lr / 20.)));
-    optimizer_params_groups.push_back(torch::optim::OptimizerParamGroup({_scaling}, std::make_unique<torch::optim::AdamOptions>(params.scaling_lr * this->_spatial_lr_scale)));
-    optimizer_params_groups.push_back(torch::optim::OptimizerParamGroup({_rotation}, std::make_unique<torch::optim::AdamOptions>(params.rotation_lr)));
+    optimizer_params_groups.push_back(torch::optim::OptimizerParamGroup({_scaling}, std::make_unique<torch::optim::AdamOptions>(params.scaling_lr * this->_spatial_lr_scale))); // scaling
+    optimizer_params_groups.push_back(torch::optim::OptimizerParamGroup({_rotation}, std::make_unique<torch::optim::AdamOptions>(params.rotation_lr))); // rotation to calcluate covariance
     optimizer_params_groups.push_back(torch::optim::OptimizerParamGroup({_opacity}, std::make_unique<torch::optim::AdamOptions>(params.opacity_lr)));
 
     static_cast<torch::optim::AdamOptions&>(optimizer_params_groups[0].options()).eps(1e-15);
@@ -185,6 +185,7 @@ void GaussianModel::densification_postfix(torch::Tensor& new_xyz,
                                           torch::Tensor& new_scaling,
                                           torch::Tensor& new_rotation,
                                           torch::Tensor& new_opacity) {
+    // concatenate tensors
     cat_tensors_to_optimizer(_optimizer.get(), new_xyz, _xyz, 0);
     cat_tensors_to_optimizer(_optimizer.get(), new_features_dc, _features_dc, 1);
     cat_tensors_to_optimizer(_optimizer.get(), new_features_rest, _features_rest, 2);
@@ -199,14 +200,21 @@ void GaussianModel::densification_postfix(torch::Tensor& new_xyz,
 
 void GaussianModel::densify_and_split(torch::Tensor& grads, float grad_threshold, float scene_extent, float min_opacity, float max_screen_size) {
     static const int N = 2;
+    // Get the number of initial points
     const int n_init_points = _xyz.size(0);
     // Extract points that satisfy the gradient condition
+    // Pad gradients and create a mask for selected points
     torch::Tensor padded_grad = torch::zeros({n_init_points}).to(torch::kCUDA);
     padded_grad.slice(0, 0, grads.size(0)) = grads.squeeze();
     torch::Tensor selected_pts_mask = torch::where(padded_grad >= grad_threshold, torch::ones_like(padded_grad).to(torch::kBool), torch::zeros_like(padded_grad).to(torch::kBool));
+    
+    // Further restrict point selection based on scaling
     selected_pts_mask = torch::logical_and(selected_pts_mask, std::get<0>(Get_scaling().max(1)) > _percent_dense * scene_extent);
+    
+    // Get indices of selected points
     auto indices = torch::nonzero(selected_pts_mask.squeeze(-1) == true).index({torch::indexing::Slice(torch::indexing::None, torch::indexing::None), torch::indexing::Slice(torch::indexing::None, 1)}).squeeze(-1);
 
+    // Generate new points
     torch::Tensor stds = Get_scaling().index_select(0, indices).repeat({N, 1});
     torch::Tensor means = torch::zeros({stds.size(0), 3}).to(torch::kCUDA);
     torch::Tensor samples = torch::randn({stds.size(0), stds.size(1)}).to(torch::kCUDA) * stds + means;
@@ -219,8 +227,10 @@ void GaussianModel::densify_and_split(torch::Tensor& grads, float grad_threshold
     torch::Tensor new_features_rest = _features_rest.index_select(0, indices).repeat({N, 1, 1});
     torch::Tensor new_opacity = _opacity.index_select(0, indices).repeat({N, 1});
 
+    // Perform densification postfix
     densification_postfix(new_xyz, new_features_dc, new_features_rest, new_scaling, new_rotation, new_opacity);
 
+     // Create a prune filter and prune points
     torch::Tensor prune_filter = torch::cat({selected_pts_mask.squeeze(-1), torch::zeros({N * selected_pts_mask.sum().item<int>()}).to(torch::kBool).to(torch::kCUDA)});
     // torch::Tensor prune_filter = torch::cat({selected_pts_mask.squeeze(-1), torch::zeros({N * selected_pts_mask.sum().item<int>()})}).to(torch::kBool).to(torch::kCUDA);
     prune_filter = torch::logical_or(prune_filter, (Get_opacity() < min_opacity).squeeze(-1));
@@ -232,10 +242,12 @@ void GaussianModel::densify_and_clone(torch::Tensor& grads, float grad_threshold
     torch::Tensor selected_pts_mask = torch::where(torch::linalg::vector_norm(grads, {2}, 1, true, torch::kFloat32) >= grad_threshold,
                                                    torch::ones_like(grads.index({torch::indexing::Slice()})).to(torch::kBool),
                                                    torch::zeros_like(grads.index({torch::indexing::Slice()})).to(torch::kBool))
-                                          .to(torch::kLong);
+                                          .to(torch::kLong); //select points that have a gradient norm greater than the threshold
 
+    // Further restrict the selection by ensuring that the scaling of the selected points is within a certain percentage of the scene extent
     selected_pts_mask = torch::logical_and(selected_pts_mask, std::get<0>(Get_scaling().max(1)).unsqueeze(-1) <= _percent_dense * scene_extent);
 
+    // Extracts indices of the selected points and uses these indices to create new tensors 
     auto indices = torch::nonzero(selected_pts_mask.squeeze(-1) == true).index({torch::indexing::Slice(torch::indexing::None, torch::indexing::None), torch::indexing::Slice(torch::indexing::None, 1)}).squeeze(-1);
     torch::Tensor new_xyz = _xyz.index_select(0, indices);
     torch::Tensor new_features_dc = _features_dc.index_select(0, indices);

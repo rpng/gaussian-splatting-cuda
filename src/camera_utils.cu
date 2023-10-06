@@ -19,12 +19,14 @@ torch::Tensor getWorld2View2(const Eigen::Matrix3f& R, const Eigen::Vector3f& t,
     cam_center = (cam_center + translate) * scale;
     C2W.block<3, 1>(0, 3) = cam_center;
     Rt = C2W.inverse();
+    // std::cout<<"Rt: "<< Rt<<std::endl;
     // Here we create a torch::Tensor from the Eigen::Matrix
     // Note that the tensor will be on the CPU, you may want to move it to the desired device later
-    auto RtTensor = torch::from_blob(Rt.data(), {4, 4}, torch::kFloat);
+    auto RtTensor = torch::from_blob(Rt.data(), {4, 4}, torch::kFloat).clone();
     // clone the tensor to allocate new memory, as from_blob shares the same memory
     // this step is important if Rt will go out of scope and the tensor will be used later
-    return RtTensor.clone();
+    // std::cout<< "RtTensor: "<< RtTensor<<std::endl;
+    return RtTensor;
 }
 
 Eigen::Matrix4f getWorld2View2Eigen(const Eigen::Matrix3f& R, const Eigen::Vector3f& t,
@@ -63,11 +65,12 @@ torch::Tensor getProjectionMatrix(float znear, float zfar, float fovX, float fov
     P(2, 2) = z_sign * zfar / (zfar - znear);
     P(2, 3) = -(zfar * znear) / (zfar - znear);
 
+    // std::cout<< "p: "<<P<<std::endl;
     // create torch::Tensor from Eigen::Matrix
-    auto PTensor = torch::from_blob(P.data(), {4, 4}, torch::kFloat);
-
+    auto PTensor = torch::from_blob(P.data(), {4, 4}, torch::kFloat).clone();
+    // std::cout<< "PTensor: "<<PTensor<<std::endl;
     // clone the tensor to allocate new memory
-    return PTensor.clone();
+    return PTensor;
 }
 
 float fov2focal(float fov, int pixels) {
